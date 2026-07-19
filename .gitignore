@@ -1,2 +1,7 @@
 ollive-wiki/.obsidian/*
 ollive-wiki/.obsidian
+.DS_Store
+
+*.pyc 
+*.pyo
+__pycache__/
