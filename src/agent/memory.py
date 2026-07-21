@@ -273,6 +273,8 @@ def remember(
 
 
 def _llm_classify(raw_text: str, schema: dict) -> dict:
+    from agent_model import get_chat_kwargs
+    # Profile forces provider; skip auto_route so the router cannot re-pick.
     return LLM().chat(
         prompt=(
             "Classify the following content into a JSON memory record.\n\n"
@@ -291,8 +293,6 @@ def _llm_classify(raw_text: str, schema: dict) -> dict:
             "  identifiable entity — if you cannot classify a specific\n"
             "  attribute, include {\"raw\": <the original content>}."
         ),
-        auto_route="memory",
-        provider="g",
         response_format={
             "type": "json_schema",
             "schema": schema,
@@ -300,6 +300,8 @@ def _llm_classify(raw_text: str, schema: dict) -> dict:
             "strict": True,
         },
         temperature=1.0,
+        agent="memory",
+        **get_chat_kwargs(),
     )
 
 

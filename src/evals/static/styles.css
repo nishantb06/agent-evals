@@ -96,7 +96,7 @@ main { min-height: 0; overflow: hidden; }
   color: var(--muted);
 }
 
-textarea, input[type="text"] {
+textarea, input[type="text"], select {
   background: #243041;
   border: 1px solid var(--border);
   color: var(--text);

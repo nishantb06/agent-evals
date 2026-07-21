@@ -27,10 +27,18 @@
       <div class="chat-layout">
         <div class="chat-sidebar">
           <label class="field">
+            <span class="field-label">agent model</span>
+            <select id="modelSelect" aria-label="Agent model profile">
+              <option value="gemini" selected>Gemini (frontier)</option>
+              <option value="llama-3">Llama-3 8B (NVIDIA)</option>
+            </select>
+          </label>
+          <label class="field">
             <span class="field-label">persona (optional)</span>
             <textarea id="personaInput" rows="3" placeholder="You are a practical nutrition coach…"></textarea>
           </label>
           <div class="meta-line">chat: <code id="chatIdLabel">—</code></div>
+          <div class="meta-line">model: <code id="modelLabel">gemini</code></div>
           <button type="button" id="newChatBtn">New chat</button>
         </div>
         <div class="chat-main">

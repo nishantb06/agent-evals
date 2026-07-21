@@ -44,6 +44,7 @@ async def handle_turn(
     *,
     persona: str | None = None,
     channel: str | None = None,
+    model_profile: str | None = None,
     executor=None,
 ) -> ChatTurnResult:
     """Run one user message as a new graph session and append both turns.
@@ -51,10 +52,16 @@ async def handle_turn(
     `chat_id` may be None — a fresh cli-* id is generated. Prior transcript
     (excluding the message being appended) is passed into Executor as
     chat context for Planner/Formatter prompts and memory keyword fallback.
+
+    `model_profile` is `gemini` (default) or `llama-3` — forces every skill
+    LLM call onto that provider/model for the turn.
     """
     text = (message or "").strip()
     if not text:
         raise ValueError("message must be non-empty")
+
+    from agent_model import set_profile
+    set_profile(model_profile)
 
     cid = chat_id or new_chat_id("cli")
     lock = await _lock_for(cid)
@@ -82,6 +89,7 @@ async def handle_turn(
                 chat_history=history_dicts,
                 chat_context=history_text,
                 persona=effective_persona,
+                model_profile=model_profile,
             )
         except Exception:
             # Leave the user turn on disk (with run_id) so operators can see

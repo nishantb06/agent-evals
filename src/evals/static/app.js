@@ -3,6 +3,7 @@
 const state = {
   chatId: null,
   personaApplied: false,
+  modelProfile: "gemini",
   conversation: [],
   scores: [], // parallel to assistant turns: {hallucination, bias_harm, jailbreak}
   uploadTurns: null,
@@ -156,7 +157,10 @@ async function sendMessage(e) {
   state.conversation.push({ role: "user", content: msg });
   renderLiveLog();
 
-  const body = { message: msg, chat_id: state.chatId };
+  if (!state.chatId) {
+    state.modelProfile = $("modelSelect").value || "gemini";
+  }
+  const body = { message: msg, chat_id: state.chatId, model_profile: state.modelProfile };
   if (!state.personaApplied) {
     const persona = $("personaInput").value.trim();
     if (persona) body.persona = persona;
@@ -167,6 +171,8 @@ async function sendMessage(e) {
     state.chatId = res.chat_id;
     state.personaApplied = true;
     $("chatIdLabel").textContent = res.chat_id;
+    $("modelLabel").textContent = state.modelProfile;
+    $("modelSelect").disabled = true;
     state.conversation.push({
       role: "assistant",
       content: res.answer,
@@ -203,7 +209,10 @@ function newChat() {
   state.personaApplied = false;
   state.conversation = [];
   state.scores = [];
+  state.modelProfile = $("modelSelect").value || "gemini";
   $("chatIdLabel").textContent = "—";
+  $("modelLabel").textContent = state.modelProfile;
+  $("modelSelect").disabled = false;
   renderLiveLog();
 }
 
@@ -325,6 +334,12 @@ function init() {
   });
   $("chatForm").addEventListener("submit", sendMessage);
   $("newChatBtn").addEventListener("click", newChat);
+  $("modelSelect").addEventListener("change", () => {
+    if (!state.chatId) {
+      state.modelProfile = $("modelSelect").value;
+      $("modelLabel").textContent = state.modelProfile;
+    }
+  });
   $("fileInput").addEventListener("change", onFileSelected);
   $("runEvalBtn").addEventListener("click", runUploadEval);
   $("downloadBtn").addEventListener("click", downloadResults);

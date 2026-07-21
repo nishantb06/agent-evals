@@ -52,6 +52,8 @@ async def _dispatch_tool(session: ClientSession, name: str, args: dict) -> str:
 
 async def run_with_tools(*, prompt: str, tools_payload: list[dict],
                          agent: str, session_id: str,
+                         provider: str | None = None,
+                         model: str | None = None,
                          provider_pin: str | None = None,
                          max_tokens: int = 2048,
                          temperature: float = 0.3) -> dict:
@@ -59,6 +61,12 @@ async def run_with_tools(*, prompt: str, tools_payload: list[dict],
     model returns text. Returns the FINAL gateway reply dict (so callers
     can read `text`, `provider`, etc. the same way they would for a
     one-shot call)."""
+    from agent_model import get_chat_kwargs
+    profile_kw = get_chat_kwargs()
+    # Explicit provider/model from caller or profile wins over skill provider_pin.
+    use_provider = provider or profile_kw.get("provider") or provider_pin
+    use_model = model if model is not None else profile_kw.get("model")
+
     messages: list[dict] = [{"role": "user", "content": prompt}]
     last_reply: dict = {}
 
@@ -67,10 +75,12 @@ async def run_with_tools(*, prompt: str, tools_payload: list[dict],
         async with ClientSession(read, write) as mcp:
             await mcp.initialize()
             for _ in range(MAX_TOOL_HOPS + 1):
-                reply = await _chat(messages=messages, tools=tools_payload,
-                                    agent=agent, session_id=session_id,
-                                    provider_pin=provider_pin,
-                                    max_tokens=max_tokens, temperature=temperature)
+                reply = await _chat(
+                    messages=messages, tools=tools_payload,
+                    agent=agent, session_id=session_id,
+                    provider=use_provider, model=use_model,
+                    max_tokens=max_tokens, temperature=temperature,
+                )
                 last_reply = reply
                 tool_calls = reply.get("tool_calls") or []
                 if not tool_calls:
@@ -93,17 +103,19 @@ async def run_with_tools(*, prompt: str, tools_payload: list[dict],
     return last_reply
 
 
-async def _chat(*, messages, tools, agent, session_id, provider_pin,
+async def _chat(*, messages, tools, agent, session_id, provider, model,
                 max_tokens, temperature) -> dict:
     import asyncio as _a
-    return await _a.to_thread(
-        LLM().chat,
-        messages=messages,
-        tools=tools,
-        tool_choice="auto",
-        agent=agent,
-        session=session_id,
-        provider=provider_pin,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+    kw: dict = {
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "agent": agent,
+        "session": session_id,
+        "provider": provider,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if model:
+        kw["model"] = model
+    return await _a.to_thread(LLM().chat, **kw)

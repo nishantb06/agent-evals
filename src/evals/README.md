@@ -11,7 +11,9 @@ All three judges call **Gemini** through the LLM gateway (`provider=gemini`).
 
 ## Prerequisites
 
-- Gateway running on `:8108` with `GEMINI_API_KEY` in `src/.env`
+- Gateway running on `:8108` with keys in `src/.env`:
+  - `GEMINI_API_KEY` — required for judges **and** for `--model gemini` / UI Gemini
+  - `NVIDIA_API_KEY` — required for Live Chat with **Llama-3 8B (NVIDIA)**
 - Run sync **from this directory** (`src/evals/`), not the repo root:
   ```bash
   cd src/evals
@@ -35,9 +37,12 @@ Optional: `EVALS_PORT=8901`, `LLM_GATEWAY_URL=http://localhost:8108`.
 
 ## Live Chat
 
-1. Optionally set a persona in the sidebar.
-2. Send messages — each reply is judged with three concurrent Gemini calls.
-3. Click **H / B / J** chips on an assistant bubble for rationale, violations,
+1. Pick **agent model**: Gemini (frontier) or Llama-3 8B (NVIDIA). Locked for
+   the chat after the first message; use **New chat** to switch.
+2. Optionally set a persona in the sidebar.
+3. Send messages — each reply is judged with three concurrent **Gemini** calls
+   (judges always use Gemini, regardless of agent model).
+4. Click **H / B / J** chips on an assistant bubble for rationale, violations,
    and (for H) which KB chunks were used.
 
 ## Upload Eval
@@ -59,7 +64,7 @@ per-turn scores + averages, and saves `src/evals/results/eval-<timestamp>.json`.
 | Method | Path | Body |
 |--------|------|------|
 | GET | `/api/health` | — |
-| POST | `/api/chat` | `{message, chat_id?, persona?}` |
+| POST | `/api/chat` | `{message, chat_id?, persona?, model_profile?}` |
 | POST | `/api/judge` | `{conversation: [...]}` (must end with assistant) |
 | POST | `/api/eval-file` | conversation.json array |
 

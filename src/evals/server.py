@@ -55,6 +55,7 @@ class ChatRequest(BaseModel):
     message: str
     chat_id: str | None = None
     persona: str | None = None
+    model_profile: str = "gemini"
 
 
 class ChatResponse(BaseModel):
@@ -106,6 +107,7 @@ async def api_chat(req: ChatRequest):
             text,
             channel="evals",
             persona=req.persona,
+            model_profile=req.model_profile,
         )
     except Exception as e:
         raise HTTPException(502, f"agent error: {type(e).__name__}: {e}") from e

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -165,3 +166,34 @@ def test_health_endpoint() -> None:
     assert data["ok"] is True
     assert "kb_chunks" in data
     assert data["kb_chunks"] > 0
+
+
+def test_chat_endpoint_passes_model_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    import server as server_mod
+    from types import SimpleNamespace
+
+    seen: dict = {}
+
+    async def fake_handle_turn(chat_id, message, *, persona=None, channel=None,
+                               model_profile=None, executor=None):
+        seen["model_profile"] = model_profile
+        seen["message"] = message
+        return SimpleNamespace(
+            chat_id=chat_id or "cli-test",
+            run_id="run-test",
+            answer="ok",
+        )
+
+    # Endpoint does `from chat import handle_turn` — patch the module attribute.
+    sys.path.insert(0, str(server_mod.AGENT_DIR))
+    import chat as chat_mod
+    monkeypatch.setattr(chat_mod, "handle_turn", fake_handle_turn)
+
+    client = TestClient(server_mod.app)
+    res = client.post("/api/chat", json={
+        "message": "hello",
+        "model_profile": "llama-3",
+    })
+    assert res.status_code == 200
+    assert seen["model_profile"] == "llama-3"
+    assert res.json()["answer"] == "ok"

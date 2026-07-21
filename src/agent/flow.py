@@ -177,7 +177,10 @@ class Executor:
                   resume: bool = False,
                   chat_history: list[dict] | None = None,
                   chat_context: str | None = None,
-                  persona: str | None = None) -> str:
+                  persona: str | None = None,
+                  model_profile: str | None = None) -> str:
+        from agent_model import set_profile
+        profile = set_profile(model_profile)
         sid = session_id or f"run-{uuid.uuid4().hex[:8]}"
         store = SessionStore(sid)
         if resume:
@@ -200,7 +203,7 @@ class Executor:
             graph = Graph()
             graph.add_node("planner", inputs=["USER_QUERY"])
 
-        print(f"\n{'═' * 78}\nsession {sid}  ─  query: {query}\n{'═' * 78}")
+        print(f"\n{'═' * 78}\nsession {sid}  ─  model: {profile.label}  ─  query: {query}\n{'═' * 78}")
         # Read memory ONCE at session start; the same hits flow into every
         # skill's prompt so every cognitive role sees a consistent view.
         # chat_history (prior turns) feeds the keyword fallback only; the
@@ -350,6 +353,7 @@ class CliArgs:
     mode: str
     chat_id: str | None = None
     persona: str | None = None
+    model_profile: str = "gemini"
     resume_sid: str | None = None
     query: str = ""
 
@@ -359,13 +363,17 @@ class CliParseError(ValueError):
 
 
 def _parse_cli(argv: list[str]) -> CliArgs:
-    """Parse flow.py argv into CliArgs. Order of --chat / --persona is free.
+    """Parse flow.py argv into CliArgs. Order of --chat / --persona / --model is free.
 
     Raises CliParseError on missing values or unknown flags when flags are
     mixed with a one-shot query.
     """
+    from agent_model import UnknownModelProfile, resolve
+
     chat_id: str | None = None
     persona: str | None = None
+    model_profile = "gemini"
+    resume_sid: str | None = None
     positional: list[str] = []
     i = 0
     while i < len(argv):
@@ -382,34 +390,67 @@ def _parse_cli(argv: list[str]) -> CliArgs:
             persona = argv[i + 1]
             i += 2
             continue
+        if tok == "--model":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                raise CliParseError("--model requires a profile name (gemini | llama-3)")
+            try:
+                model_profile = resolve(argv[i + 1]).name
+            except UnknownModelProfile as e:
+                raise CliParseError(str(e)) from e
+            i += 2
+            continue
         if tok == "--resume":
             if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
                 raise CliParseError("--resume requires a session id")
             resume_sid = argv[i + 1]
-            query = " ".join(argv[i + 2 :])
-            return CliArgs(mode="resume", resume_sid=resume_sid, query=query)
+            i += 2
+            continue
         if tok.startswith("--"):
             raise CliParseError(f"unknown flag: {tok}")
         positional.append(tok)
         i += 1
 
+    if resume_sid is not None:
+        return CliArgs(
+            mode="resume",
+            resume_sid=resume_sid,
+            query=" ".join(positional),
+            model_profile=model_profile,
+        )
+
     if chat_id is not None or persona is not None or not positional:
-        if positional:
+        if positional and (chat_id is not None or persona is not None):
             raise CliParseError(
                 "positional query cannot be combined with --chat / --persona; "
                 "use the REPL or a bare one-shot query"
             )
-        return CliArgs(mode="repl", chat_id=chat_id, persona=persona)
+        return CliArgs(
+            mode="repl",
+            chat_id=chat_id,
+            persona=persona,
+            model_profile=model_profile,
+        )
 
-    return CliArgs(mode="oneshot", query=" ".join(positional))
+    return CliArgs(
+        mode="oneshot",
+        query=" ".join(positional),
+        model_profile=model_profile,
+    )
 
 
-def _run_repl(chat_id: str | None, persona: str | None = None) -> None:
+def _run_repl(
+    chat_id: str | None,
+    persona: str | None = None,
+    model_profile: str = "gemini",
+) -> None:
     """Interactive multi-turn chat. Each line → one graph session via handle_turn."""
+    from agent_model import resolve
     from chat import handle_turn, new_chat_id
 
+    profile = resolve(model_profile)
     cid = chat_id or new_chat_id("cli")
     print(f"chat {cid}")
+    print(f"model: {profile.label}")
     if persona and persona.strip():
         preview = persona.strip().replace("\n", " ")
         if len(preview) > 80:
@@ -417,7 +458,8 @@ def _run_repl(chat_id: str | None, persona: str | None = None) -> None:
         print(f"persona: {preview}")
     print("Multi-turn REPL. Commands: /help  /chat  /quit")
     print("Each message runs a fresh graph session under this chat.")
-    print("Persona is set at launch via --persona (persists in meta.json).\n")
+    print("Persona is set at launch via --persona (persists in meta.json).")
+    print("Model profile via --model gemini | llama-3.\n")
 
     while True:
         try:
@@ -434,13 +476,18 @@ def _run_repl(chat_id: str | None, persona: str | None = None) -> None:
             print("  /quit   leave the REPL")
             print("  otherwise: send a user message (one graph run)")
             print("  launch with --persona \"...\" to set chat persona")
+            print("  launch with --model gemini|llama-3 to force provider")
             continue
         if line == "/chat":
             print(f"  chat_id = {cid}")
             continue
         try:
             result = asyncio.run(
-                handle_turn(cid, line, channel="cli", persona=persona)
+                handle_turn(
+                    cid, line, channel="cli",
+                    persona=persona,
+                    model_profile=model_profile,
+                )
             )
         except Exception as e:
             print(f"error: {type(e).__name__}: {e}")
@@ -458,7 +505,11 @@ def main() -> None:
         sys.exit(2)
 
     if parsed.mode == "repl":
-        _run_repl(parsed.chat_id, persona=parsed.persona)
+        _run_repl(
+            parsed.chat_id,
+            persona=parsed.persona,
+            model_profile=parsed.model_profile,
+        )
         return
     if parsed.mode == "resume":
         asyncio.run(
@@ -466,11 +517,14 @@ def main() -> None:
                 parsed.query,
                 session_id=parsed.resume_sid,
                 resume=True,
+                model_profile=parsed.model_profile,
             )
         )
         return
-    # One-shot: flow.py "your question"
-    asyncio.run(Executor().run(parsed.query))
+    # One-shot: flow.py [--model …] "your question"
+    asyncio.run(
+        Executor().run(parsed.query, model_profile=parsed.model_profile)
+    )
 
 
 if __name__ == "__main__":

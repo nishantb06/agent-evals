@@ -314,6 +314,8 @@ async def run_skill(skill: Skill, node_id: str, graph_nodes,
         ), rendered
 
     tools = tool_payload(skill.tools_allowed)
+    from agent_model import get_chat_kwargs
+    chat_kw = get_chat_kwargs()  # forces provider; overrides agent_routing.yaml
     if tools:
         # Multi-turn tool-use loop. mcp_runner opens one MCP stdio session
         # per skill invocation, dispatches each tool_call the model emits,
@@ -324,9 +326,9 @@ async def run_skill(skill: Skill, node_id: str, graph_nodes,
             tools_payload=tools,
             agent=skill.name,
             session_id=session_id,
-            provider_pin=skill.provider_pin,
             max_tokens=skill.max_tokens,
             temperature=skill.temperature,
+            **chat_kw,
         )
     else:
         reply = await asyncio.to_thread(
@@ -334,9 +336,9 @@ async def run_skill(skill: Skill, node_id: str, graph_nodes,
             prompt=rendered,
             agent=skill.name,
             session=session_id,
-            provider=skill.provider_pin,
             max_tokens=skill.max_tokens,
             temperature=skill.temperature,
+            **chat_kw,
         )
     parsed = parse_skill_json(reply.get("text", ""))
 
