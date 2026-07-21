@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Graph Viewer</title>
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a222d;
+    --border: #2c3848;
+    --text: #e7eef7;
+    --muted: #8b9bb0;
+    --accent: #5eb1ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  header h1 { font-size: 14px; margin: 0 12px 0 0; font-weight: 600; }
+  header .muted { color: var(--muted); }
+  label.btn, button {
+    background: #243041;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  label.btn input { display: none; }
+  main {
+    display: grid;
+    grid-template-columns: 1fr minmax(320px, 420px);
+    min-height: 0;
+  }
+  #network {
+    border-right: 1px solid var(--border);
+    min-height: 0;
+  }
+  #drop {
+    position: absolute;
+    inset: 48px 420px 0 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15,20,25,.85);
+    border: 2px dashed var(--accent);
+    color: var(--accent);
+    font-size: 16px;
+    z-index: 5;
+    pointer-events: none;
+  }
+  #drop.show { display: flex; }
+  aside {
+    overflow: auto;
+    padding: 12px 14px 24px;
+    background: var(--panel);
+  }
+  aside h2 { font-size: 13px; margin: 0 0 8px; color: var(--accent); }
+  aside h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin: 14px 0 6px;
+  }
+  .kv { display: grid; grid-template-columns: 90px 1fr; gap: 4px 8px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; word-break: break-word; }
+  pre {
+    margin: 0;
+    padding: 10px;
+    background: #0c1016;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: auto;
+    max-height: 280px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+  }
+  .complete { background: #14301f; color: #7ddea0; }
+  .failed { background: #3a1515; color: #ff8f8f; }
+  .pending, .running, .skipped { background: #2a2430; color: #d2b8ff; }
+  .hint { color: var(--muted); margin-top: 8px; }
+  #tooltip {
+    position: fixed;
+    z-index: 20;
+    max-width: 360px;
+    padding: 8px 10px;
+    background: #111820;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+    pointer-events: none;
+    display: none;
+    font-size: 12px;
+  }
+  #tooltip strong { color: var(--accent); }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 55vh 1fr; }
+    #network { border-right: none; border-bottom: 1px solid var(--border); }
+    #drop { inset: 48px 0 45% 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Session graph</h1>
+  <label class="btn">Load graph.json<input type="file" id="graphFile" accept=".json,application/json" /></label>
+  <label class="btn">Load nodes/*.json<input type="file" id="nodesFile" accept=".json,application/json" multiple /></label>
+  <span class="muted" id="status">Drop a graph.json anywhere, or use the buttons.</span>
+</header>
+<main>
+  <div id="network"></div>
+  <div id="drop">Drop graph.json</div>
+  <aside id="panel">
+    <p class="hint">Click a node for full details. Hover for a quick summary.</p>
+    <p class="hint">
+      Tip: <code>prompt_sent</code> lives in <code>nodes/n_00X.json</code>, not in graph.json —
+      load those files to see prompts.
+    </p>
+  </aside>
+</main>
+<div id="tooltip"></div>
+
+<script>
+const SKILL_COLOR = {
+  planner: "#5eb1ff",
+  retriever: "#7ddea0",
+  researcher: "#ffc857",
+  distiller: "#c792ea",
+  summariser: "#82aaff",
+  critic: "#ff8f8f",
+  formatter: "#89ddff",
+  coder: "#f78c6c",
+  sandbox_executor: "#c3e88d",
+  browser: "#b2ccd6",
+};
+
+let graphData = null;
+let nodeExtras = {}; // node_id -> { prompt_sent, ... }
+let network = null;
+
+const statusEl = document.getElementById("status");
+const panelEl = document.getElementById("panel");
+const tipEl = document.getElementById("tooltip");
+const dropEl = document.getElementById("drop");
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => (
+    { "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]
+  ));
+}
+
+function short(v, n = 180) {
+  const s = typeof v === "string" ? v : JSON.stringify(v);
+  if (!s) return "—";
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function nodeKey(id) {
+  // n:1 <-> n_001
+  if (!id) return id;
+  if (id.startsWith("n:")) {
+    const num = id.slice(2);
+    return "n_" + String(num).padStart(3, "0");
+  }
+  return id;
+}
+
+function inferEdges(data) {
+  const edges = [];
+  const seen = new Set();
+  const add = (source, target, kind) => {
+    const key = source + "->" + target;
+    if (seen.has(key) || source === target) return;
+    seen.add(key);
+    edges.push({ source, target, kind });
+  };
+
+  for (const e of data.edges || []) {
+    add(e.source, e.target, "recorded");
+  }
+
+  // Data deps from inputs
+  for (const n of data.nodes || []) {
+    for (const inp of n.inputs || []) {
+      if (typeof inp === "string" && inp.startsWith("n:")) add(inp, n.id, "input");
+    }
+  }
+
+  // Spawn edges from successors (fills empty edges:[] planner→child cases)
+  const byId = [...(data.nodes || [])].sort(
+    (a, b) => parseInt(a.id.slice(2), 10) - parseInt(b.id.slice(2), 10)
+  );
+  for (const n of byId) {
+    const succs = n.result?.successors || [];
+    if (!succs.length) continue;
+    const nNum = parseInt(n.id.slice(2), 10);
+    const pool = byId.filter(c => parseInt(c.id.slice(2), 10) > nNum);
+    let i = 0;
+    for (const spec of succs) {
+      while (i < pool.length && pool[i].skill !== spec.skill) i++;
+      if (i >= pool.length) break;
+      add(n.id, pool[i].id, "spawn");
+      pool.splice(i, 1);
+    }
+  }
+  return edges;
+}
+
+function previewOutput(result) {
+  if (!result) return "—";
+  if (result.error) return "error: " + result.error;
+  const o = result.output || {};
+  if (o.final_answer) return o.final_answer;
+  if (o.rationale) return o.rationale;
+  if (o.summary) return o.summary;
+  if (o.findings) return o.findings;
+  return short(o, 160);
+}
+
+function renderPanel(n) {
+  if (!n) {
+    panelEl.innerHTML = `<p class="hint">Click a node for details.</p>`;
+    return;
+  }
+  const r = n.result || {};
+  const extra = nodeExtras[n.id] || nodeExtras[nodeKey(n.id)] || {};
+  const prompt = extra.prompt_sent || n.prompt_sent || null;
+  const status = n.status || "—";
+  panelEl.innerHTML = `
+    <h2>${esc(n.id)} · ${esc(n.skill)}</h2>
+    <div class="kv">
+      <dt>status</dt><dd><span class="pill ${esc(status)}">${esc(status)}</span></dd>
+      <dt>provider</dt><dd>${esc(r.provider || "—")}</dd>
+      <dt>elapsed</dt><dd>${r.elapsed_s != null ? Number(r.elapsed_s).toFixed(2) + "s" : "—"}</dd>
+      <dt>success</dt><dd>${r.success == null ? "—" : r.success}</dd>
+      <dt>label</dt><dd>${esc((n.metadata && n.metadata.label) || "—")}</dd>
+      <dt>question</dt><dd>${esc((n.metadata && n.metadata.question) || "—")}</dd>
+    </div>
+    <h3>inputs</h3>
+    <pre>${esc(JSON.stringify(n.inputs || [], null, 2))}</pre>
+    <h3>metadata</h3>
+    <pre>${esc(JSON.stringify(n.metadata || {}, null, 2))}</pre>
+    <h3>output</h3>
+    <pre>${esc(JSON.stringify(r.output || {}, null, 2))}</pre>
+    ${r.error ? `<h3>error</h3><pre>${esc(r.error)}</pre>` : ""}
+    <h3>successors</h3>
+    <pre>${esc(JSON.stringify(r.successors || [], null, 2))}</pre>
+    <h3>prompt_sent</h3>
+    <pre>${prompt ? esc(prompt) : "(not in graph.json — load nodes/n_00X.json)"}</pre>
+  `;
+}
+
+function showTip(n, evt) {
+  const r = n.result || {};
+  tipEl.innerHTML = `
+    <strong>${esc(n.id)}</strong> · ${esc(n.skill)}
+    <div class="muted">${esc(n.status)} · ${esc(r.provider || "—")} · ${
+      r.elapsed_s != null ? Number(r.elapsed_s).toFixed(1) + "s" : "—"
+    }</div>
+    <div style="margin-top:6px"><b>inputs</b>: ${esc((n.inputs || []).join(", ") || "(none)")}</div>
+    <div style="margin-top:4px"><b>out</b>: ${esc(short(previewOutput(r), 220))}</div>
+  `;
+  tipEl.style.display = "block";
+  moveTip(evt);
+}
+
+function moveTip(evt) {
+  const x = Math.min(evt.clientX + 14, window.innerWidth - 380);
+  const y = Math.min(evt.clientY + 14, window.innerHeight - 120);
+  tipEl.style.left = x + "px";
+  tipEl.style.top = y + "px";
+}
+
+function hideTip() {
+  tipEl.style.display = "none";
+}
+
+function draw(data) {
+  graphData = data;
+  const edgesRaw = inferEdges(data);
+  const nodes = new vis.DataSet(
+    (data.nodes || []).map(n => {
+      const color = SKILL_COLOR[n.skill] || "#8b9bb0";
+      const failed = n.status === "failed" || (n.result && n.result.success === false);
+      return {
+        id: n.id,
+        label: `${n.id}\n${n.skill}`,
+        title: undefined, // custom tooltip
+        color: {
+          background: color,
+          border: failed ? "#ff5c5c" : "#0c1016",
+          highlight: { background: color, border: "#fff" },
+        },
+        font: { color: "#0c1016", multi: true, bold: true },
+        borderWidth: failed ? 3 : 2,
+        shape: "box",
+        margin: 10,
+        _raw: n,
+      };
+    })
+  );
+  const edges = new vis.DataSet(
+    edgesRaw.map((e, i) => ({
+      id: "e" + i,
+      from: e.source,
+      to: e.target,
+      arrows: "to",
+      dashes: e.kind !== "recorded",
+      color: { color: e.kind === "recorded" ? "#7a8aa0" : "#4a5a70" },
+      width: 1.5,
+      label: e.kind === "spawn" ? "spawn" : e.kind === "input" ? "in" : "",
+      font: { size: 9, color: "#8b9bb0", strokeWidth: 0 },
+    }))
+  );
+
+  const container = document.getElementById("network");
+  if (network) network.destroy();
+  network = new vis.Network(
+    container,
+    { nodes, edges },
+    {
+      layout: {
+        hierarchical: {
+          enabled: true,
+          direction: "UD",
+          sortMethod: "directed",
+          levelSeparation: 90,
+          nodeSpacing: 140,
+        },
+      },
+      physics: false,
+      interaction: { hover: true, tooltipDelay: 99999 },
+      edges: { smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 } },
+    }
+  );
+
+  network.on("hoverNode", params => {
+    const node = nodes.get(params.node);
+    showTip(node._raw, params.event?.srcEvent || window.event);
+  });
+  network.on("blurNode", hideTip);
+  container.addEventListener("mousemove", e => {
+    if (tipEl.style.display === "block") moveTip(e);
+  });
+  network.on("click", params => {
+    if (!params.nodes.length) return;
+    const node = nodes.get(params.nodes[0]);
+    renderPanel(node._raw);
+  });
+
+  const nCount = (data.nodes || []).length;
+  const eCount = edgesRaw.length;
+  statusEl.textContent = `${nCount} nodes · ${eCount} edges (${(data.edges || []).length} recorded, rest inferred)`;
+}
+
+async function readJsonFile(file) {
+  const text = await file.text();
+  return JSON.parse(text);
+}
+
+document.getElementById("graphFile").addEventListener("change", async e => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  try {
+    draw(await readJsonFile(f));
+  } catch (err) {
+    statusEl.textContent = "Failed to parse graph.json: " + err.message;
+  }
+});
+
+document.getElementById("nodesFile").addEventListener("change", async e => {
+  const files = [...(e.target.files || [])];
+  for (const f of files) {
+    try {
+      const j = await readJsonFile(f);
+      const id = j.node_id || j.id;
+      if (id) nodeExtras[id] = j;
+    } catch (_) {}
+  }
+  statusEl.textContent = `Loaded ${Object.keys(nodeExtras).length} node detail file(s). Click a node to see prompt_sent.`;
+  if (graphData) {
+    // refresh panel if something selected — leave as is
+  }
+});
+
+// Drag & drop graph.json
+["dragenter", "dragover"].forEach(ev => {
+  window.addEventListener(ev, e => {
+    e.preventDefault();
+    dropEl.classList.add("show");
+  });
+});
+["dragleave", "drop"].forEach(ev => {
+  window.addEventListener(ev, e => {
+    if (ev === "dragleave" && e.target !== document.documentElement) return;
+    dropEl.classList.remove("show");
+  });
+});
+window.addEventListener("drop", async e => {
+  e.preventDefault();
+  dropEl.classList.remove("show");
+  const f = [...(e.dataTransfer?.files || [])].find(x => x.name.endsWith(".json"));
+  if (!f) return;
+  try {
+    const j = await readJsonFile(f);
+    if (j.nodes && Array.isArray(j.nodes)) {
+      draw(j);
+    } else if (j.node_id) {
+      nodeExtras[j.node_id] = j;
+      statusEl.textContent = `Loaded node detail ${j.node_id}. Load graph.json for the canvas.`;
+    } else {
+      statusEl.textContent = "JSON loaded but not recognized as graph.json / node state.";
+    }
+  } catch (err) {
+    statusEl.textContent = "Drop failed: " + err.message;
+  }
+});
+</script>
+</body>
+</html>
