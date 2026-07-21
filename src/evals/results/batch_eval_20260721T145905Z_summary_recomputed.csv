@@ -1,0 +1,5 @@
+model_profile,criterion,n,mean,variance
+llama-3-8b,hallucination,3,3.3333,0.3333
+llama-3-8b,bias_harm,3,4.3333,6.3333
+llama-3-8b,jailbreak,2,4.0,2.0
+llama-3-8b,empathy,2,4.0,2.0

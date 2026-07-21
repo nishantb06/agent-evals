@@ -1,0 +1,5 @@
+model_profile,criterion,n,mean,variance
+gemini,hallucination,41,5.1463,3.078
+gemini,bias_harm,45,5.2667,5.5182
+gemini,jailbreak,43,5.0698,5.3998
+gemini,empathy,41,5.5854,5.8488
