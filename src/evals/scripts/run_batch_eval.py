@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """Run multi-turn agent evals against sampled therapist conversations.
 
-For each model profile × conversation:
-  - open a fresh chat with the marriage-counselor persona
-  - send each client query via handle_turn (agent history, not therapist)
-  - score the agent reply with judge_turn(..., reference_response=therapist)
+Independent (model × conversation) jobs run concurrently (--concurrency).
+Turns within one conversation stay sequential (multi-turn history).
 
-Writes:
+Writes / resumes:
   results/batch_eval_<timestamp>.csv          — per-turn detail
   results/batch_eval_<timestamp>_summary.csv  — mean / variance by model × criterion
+
+  --resume PATH appends to an existing detail CSV and skips completed turns.
 
 Usage (from src/evals, gateway on :8108):
   uv run python scripts/run_batch_eval.py \\
     --input data/sampled_conversations.csv \\
     --models gemini,llama-3,llama-3-8b \\
-    --out-dir results
+    --concurrency 6 \\
+    --resume results/batch_eval_20260721T143624Z.csv
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 HERE = Path(__file__).resolve().parent
 EVALS_DIR = HERE.parent
@@ -43,6 +45,8 @@ DEFAULT_PERSONA = (
     "before offering guidance. Stay non-diagnostic and encourage professional "
     "care when issues exceed wellness support."
 )
+
+RowKey = tuple[str, str, int]  # model, conversation_id, turn_index
 
 
 def _bootstrap_paths() -> None:
@@ -92,6 +96,16 @@ def _result_fieldnames(criteria: tuple[str, ...]) -> list[str]:
     return cols
 
 
+def _empty_score_cols(criteria: tuple[str, ...]) -> dict:
+    out: dict = {}
+    for c in criteria:
+        out[f"{c}_score"] = ""
+        out[f"{c}_rationale"] = ""
+        out[f"{c}_violations"] = "[]"
+    out["hallucination_kb"] = "[]"
+    return out
+
+
 def _flatten_scores(scores: dict, criteria: tuple[str, ...]) -> dict:
     out: dict = {}
     for c in criteria:
@@ -105,10 +119,43 @@ def _flatten_scores(scores: dict, criteria: tuple[str, ...]) -> dict:
     return out
 
 
+def _row_ok(row: dict) -> bool:
+    return bool((row.get("agent_response") or "").strip()) and not (row.get("error") or "").strip()
+
+
+def _row_key(row: dict) -> RowKey:
+    return (
+        row["model_profile"],
+        row["conversation_id"],
+        int(row["turn_index"]),
+    )
+
+
+def _load_resume_csv(path: Path) -> list[dict]:
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _dedupe_last_ok(rows: list[dict]) -> list[dict]:
+    """Keep last successful row per (model, conv, turn); else last row."""
+    best: dict[RowKey, dict] = {}
+    order: list[RowKey] = []
+    for row in rows:
+        key = _row_key(row)
+        if key not in best:
+            order.append(key)
+        prev = best.get(key)
+        if prev is None or _row_ok(row) or not _row_ok(prev):
+            best[key] = row
+    return [best[k] for k in order]
+
+
 def _write_summary(rows: list[dict], criteria: tuple[str, ...], path: Path) -> None:
-    # model → criterion → list of scores
+    rows = _dedupe_last_ok(rows)
     buckets: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for row in rows:
+        if not _row_ok(row):
+            continue
         model = row["model_profile"]
         for c in criteria:
             raw = row.get(f"{c}_score")
@@ -131,14 +178,14 @@ def _write_summary(rows: list[dict], criteria: tuple[str, ...], path: Path) -> N
                 vals = buckets[model][c]
                 n = len(vals)
                 if n == 0:
-                    mean = ""
-                    var = ""
+                    mean: Any = ""
+                    var: Any = ""
                 elif n == 1:
                     mean = round(vals[0], 4)
                     var = 0.0
                 else:
                     mean = round(statistics.mean(vals), 4)
-                    var = round(statistics.variance(vals), 4)  # sample, ddof=1
+                    var = round(statistics.variance(vals), 4)
                 w.writerow({
                     "model_profile": model,
                     "criterion": c,
@@ -146,6 +193,175 @@ def _write_summary(rows: list[dict], criteria: tuple[str, ...], path: Path) -> N
                     "mean": mean,
                     "variance": var,
                 })
+
+
+def _progress_for_job(
+    existing: list[dict],
+    model: str,
+    cid: str,
+    n_turns: int,
+) -> tuple[int, str | None, list[dict]]:
+    """Return (start_turn, chat_id, conversation_prefix) for resume."""
+    done_turns: dict[int, dict] = {}
+    for row in existing:
+        if row.get("model_profile") != model or row.get("conversation_id") != cid:
+            continue
+        if not _row_ok(row):
+            continue
+        ti = int(row["turn_index"])
+        done_turns[ti] = row  # last ok wins
+
+    start = 0
+    while start < n_turns and start in done_turns:
+        start += 1
+
+    conversation: list[dict] = []
+    chat_id: str | None = None
+    for ti in range(start):
+        row = done_turns[ti]
+        conversation.append({"role": "user", "content": row.get("query") or ""})
+        conversation.append({
+            "role": "assistant",
+            "content": row.get("agent_response") or "",
+            "run_id": row.get("run_id") or "",
+        })
+        chat_id = (row.get("chat_id") or "").strip() or chat_id
+
+    return start, chat_id, conversation
+
+
+async def _run_one_conversation(
+    *,
+    model: str,
+    cid: str,
+    turns: list[dict],
+    persona: str,
+    kb_corpus: list,
+    criteria: tuple[str, ...],
+    handle_turn,
+    judge_turn,
+    sem: asyncio.Semaphore,
+    write_lock: asyncio.Lock,
+    writer: csv.DictWriter,
+    file_handle,
+    detail_rows: list[dict],
+    existing: list[dict],
+    progress: dict,
+) -> None:
+    async with sem:
+        n_turns = len(turns)
+        start, chat_id, conversation = _progress_for_job(
+            existing, model, cid, n_turns,
+        )
+        if start >= n_turns:
+            print(f"  skip {model}/{cid} (already complete)", flush=True)
+            return
+
+        print(
+            f"  start {model}/{cid} from turn {start}/{n_turns - 1}"
+            + (f" chat={chat_id}" if chat_id else ""),
+            flush=True,
+        )
+
+        async def run_from(start_turn: int, chat: str | None, conv: list[dict],
+                           restart: bool) -> None:
+            nonlocal chat_id
+            chat_id = chat
+            conversation.clear()
+            conversation.extend(conv)
+
+            if restart:
+                # Drop in-memory rows for this job so summary prefers restart.
+                kept = [
+                    r for r in detail_rows
+                    if not (
+                        r.get("model_profile") == model
+                        and r.get("conversation_id") == cid
+                    )
+                ]
+                detail_rows.clear()
+                detail_rows.extend(kept)
+
+            for turn in turns[start_turn:]:
+                query = (turn.get("query") or "").strip()
+                therapist = (turn.get("therapist_response") or "").strip()
+                turn_index = int(turn["turn_index"])
+                row: dict = {
+                    "model_profile": model,
+                    "conversation_id": cid,
+                    "turn_index": turn_index,
+                    "query": query,
+                    "therapist_response": therapist,
+                    "agent_response": "",
+                    "chat_id": chat_id or "",
+                    "run_id": "",
+                    "error": "",
+                    **_empty_score_cols(criteria),
+                }
+
+                if not query:
+                    row["error"] = "empty_query"
+                    async with write_lock:
+                        writer.writerow(row)
+                        file_handle.flush()
+                        detail_rows.append(row)
+                        progress["done"] += 1
+                    continue
+
+                try:
+                    result = await handle_turn(
+                        chat_id,
+                        query,
+                        persona=persona if chat_id is None else None,
+                        model_profile=model,
+                        channel="batch_eval",
+                    )
+                    chat_id = result.chat_id
+                    conversation.append({"role": "user", "content": query})
+                    conversation.append({
+                        "role": "assistant",
+                        "content": result.answer,
+                        "run_id": result.run_id,
+                    })
+                    row["agent_response"] = result.answer
+                    row["chat_id"] = result.chat_id
+                    row["run_id"] = result.run_id
+
+                    scores = await judge_turn(
+                        conversation,
+                        kb_corpus=kb_corpus,
+                        reference_response=therapist,
+                    )
+                    row.update(_flatten_scores(scores, criteria))
+                except Exception as e:
+                    err = f"{type(e).__name__}: {e}"
+                    row["error"] = err
+                    print(f"    FAIL {model}/{cid} turn {turn_index}: {err}", flush=True)
+                    async with write_lock:
+                        writer.writerow(row)
+                        file_handle.flush()
+                        detail_rows.append(row)
+                        progress["done"] += 1
+                    if start_turn > 0 and turn_index == start_turn:
+                        # Mid-resume failed on first continued turn → full restart.
+                        print(
+                            f"  restart {model}/{cid} from turn 0 after mid-resume failure",
+                            flush=True,
+                        )
+                        await run_from(0, None, [], restart=True)
+                        return
+                    # Later failure: stop this conversation (partial).
+                    return
+
+                async with write_lock:
+                    writer.writerow(row)
+                    file_handle.flush()
+                    detail_rows.append(row)
+                    progress["done"] += 1
+                    d, t = progress["done"], progress["total"]
+                print(f"    ok {model}/{cid} turn {turn_index} ({d}/{t})", flush=True)
+
+        await run_from(start, chat_id, conversation, restart=False)
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -167,95 +383,78 @@ async def _run(args: argparse.Namespace) -> int:
     conversations = _load_sampled(args.input)
     kb_corpus = load_kb()
     persona = args.persona or DEFAULT_PERSONA
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    detail_path = args.out_dir / f"batch_eval_{ts}.csv"
-    summary_path = args.out_dir / f"batch_eval_{ts}_summary.csv"
     fieldnames = _result_fieldnames(CRITERIA)
 
-    detail_rows: list[dict] = []
-    total = sum(len(t) for t in conversations.values()) * len(models)
-    done = 0
+    args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    with detail_path.open("w", newline="", encoding="utf-8") as f:
+    existing: list[dict] = []
+    if args.resume:
+        resume_path = args.resume
+        if not resume_path.is_file():
+            print(f"--resume not found: {resume_path}", file=sys.stderr)
+            return 1
+        existing = _load_resume_csv(resume_path)
+        detail_path = resume_path
+        summary_path = resume_path.with_name(resume_path.stem + "_summary.csv")
+        print(f"resuming → {detail_path} ({len(existing)} existing rows)", flush=True)
+        mode = "a"
+        write_header = False
+    else:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        detail_path = args.out_dir / f"batch_eval_{ts}.csv"
+        summary_path = args.out_dir / f"batch_eval_{ts}_summary.csv"
+        mode = "w"
+        write_header = True
+
+    detail_rows: list[dict] = list(existing)
+    total_turns = sum(len(t) for t in conversations.values()) * len(models)
+    # Approximate remaining for progress display.
+    done_keys = {_row_key(r) for r in existing if _row_ok(r)}
+    already = 0
+    for model in models:
+        for cid, turns in conversations.items():
+            for turn in turns:
+                key = (model, cid, int(turn["turn_index"]))
+                if key in done_keys:
+                    already += 1
+    progress = {"done": already, "total": total_turns}
+
+    sem = asyncio.Semaphore(max(1, args.concurrency))
+    write_lock = asyncio.Lock()
+
+    with detail_path.open(mode, newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+        if write_header:
+            writer.writeheader()
+            f.flush()
 
-        for model in models:
-            print(f"\n=== model={model} ===", flush=True)
-            for cid, turns in conversations.items():
-                chat_id = None
-                conversation: list[dict] = []
-                print(f"  conversation {cid} ({len(turns)} turns)", flush=True)
-                for turn in turns:
-                    query = (turn.get("query") or "").strip()
-                    therapist = (turn.get("therapist_response") or "").strip()
-                    turn_index = int(turn["turn_index"])
-                    row: dict = {
-                        "model_profile": model,
-                        "conversation_id": cid,
-                        "turn_index": turn_index,
-                        "query": query,
-                        "therapist_response": therapist,
-                        "agent_response": "",
-                        "chat_id": chat_id or "",
-                        "run_id": "",
-                        "error": "",
-                    }
-                    for c in CRITERIA:
-                        row[f"{c}_score"] = ""
-                        row[f"{c}_rationale"] = ""
-                        row[f"{c}_violations"] = "[]"
-                    row["hallucination_kb"] = "[]"
-
-                    if not query:
-                        row["error"] = "empty_query"
-                        writer.writerow(row)
-                        detail_rows.append(row)
-                        done += 1
-                        continue
-
-                    try:
-                        result = await handle_turn(
-                            chat_id,
-                            query,
-                            persona=persona if chat_id is None else None,
-                            model_profile=model,
-                            channel="batch_eval",
-                        )
-                        chat_id = result.chat_id
-                        conversation.append({"role": "user", "content": query})
-                        conversation.append({
-                            "role": "assistant",
-                            "content": result.answer,
-                            "run_id": result.run_id,
-                        })
-                        row["agent_response"] = result.answer
-                        row["chat_id"] = result.chat_id
-                        row["run_id"] = result.run_id
-
-                        scores = await judge_turn(
-                            conversation,
-                            kb_corpus=kb_corpus,
-                            reference_response=therapist,
-                        )
-                        row.update(_flatten_scores(scores, CRITERIA))
-                    except Exception as e:
-                        row["error"] = f"{type(e).__name__}: {e}"
-                        print(
-                            f"    turn {turn_index} FAILED: {row['error']}",
-                            flush=True,
-                        )
-
-                    writer.writerow(row)
-                    f.flush()
-                    detail_rows.append(row)
-                    done += 1
-                    print(
-                        f"    turn {turn_index} done ({done}/{total})",
-                        flush=True,
-                    )
+        jobs = [
+            _run_one_conversation(
+                model=model,
+                cid=cid,
+                turns=turns,
+                persona=persona,
+                kb_corpus=kb_corpus,
+                criteria=CRITERIA,
+                handle_turn=handle_turn,
+                judge_turn=judge_turn,
+                sem=sem,
+                write_lock=write_lock,
+                writer=writer,
+                file_handle=f,
+                detail_rows=detail_rows,
+                existing=existing,
+                progress=progress,
+            )
+            for model in models
+            for cid, turns in conversations.items()
+        ]
+        print(
+            f"launching {len(jobs)} jobs "
+            f"(concurrency={args.concurrency}, already_done≈{already}/{total_turns})",
+            flush=True,
+        )
+        await asyncio.gather(*jobs)
 
     _write_summary(detail_rows, CRITERIA, summary_path)
     print(f"\nwrote detail  → {detail_path}")
@@ -281,6 +480,18 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=EVALS_DIR / "results",
     )
+    p.add_argument(
+        "--concurrency",
+        type=int,
+        default=6,
+        help="Max parallel (model × conversation) jobs (default 6)",
+    )
+    p.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Append to an existing batch_eval_*.csv, skipping completed turns",
+    )
     args = p.parse_args(argv)
 
     if not args.input.is_file():
@@ -288,7 +499,6 @@ def main(argv: list[str] | None = None) -> int:
         print("Run sample_conversations.py first.", file=sys.stderr)
         return 1
 
-    # Ensure gateway URL default for agent client.
     os.environ.setdefault(
         "LLM_GATEWAY_URL",
         os.getenv("LLM_GATEWAY_V8_URL", "http://localhost:8108"),

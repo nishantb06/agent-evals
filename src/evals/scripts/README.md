@@ -12,6 +12,12 @@ the therapist reply as a reference exemplar.
 - `therapist_pairs.csv` at the repo root (from `parquet_to_csv.py`).
 - From this package: `cd src/evals && uv sync`.
 
+## Parallelism
+
+`(model × conversation)` jobs run concurrently (`--concurrency`, default 6).
+Turns **within** one conversation stay sequential (multi-turn agent history).
+The four judges per turn are already concurrent inside `judge_turn`.
+
 ## Commands
 
 ```bash
@@ -32,15 +38,25 @@ uv run python scripts/sample_conversations.py \
 uv run python scripts/run_batch_eval.py \
   --input data/sampled_conversations.csv \
   --models gemini \
+  --concurrency 4 \
   --out-dir results
 
-# 3) Full A/B across profiles
+# 3) Full A/B across profiles (parallel jobs)
 uv run python scripts/run_batch_eval.py \
   --input data/sampled_conversations.csv \
   --models gemini,llama-3,llama-3-8b \
+  --concurrency 6 \
   --out-dir results
 
-# 4) Re-print / recompute summary from a results CSV
+# 4) Resume a partial run (appends to the same CSV; skips completed turns)
+uv run python scripts/run_batch_eval.py \
+  --input data/sampled_conversations.csv \
+  --models gemini,llama-3,llama-3-8b \
+  --concurrency 6 \
+  --resume results/batch_eval_20260721T143624Z.csv \
+  --out-dir results
+
+# 5) Re-print / recompute summary from a results CSV
 uv run python scripts/summarize_report.py results/batch_eval_<timestamp>.csv
 uv run python scripts/summarize_report.py results/batch_eval_<timestamp>.csv \
   --markdown results/batch_eval_<timestamp>_report.md
@@ -52,7 +68,7 @@ uv run python scripts/summarize_report.py results/batch_eval_<timestamp>.csv \
 |------|----------|
 | `data/sampled_conversations.csv` | `conversation_id,turn_index,source_row,query,therapist_response` |
 | `results/batch_eval_<ts>.csv` | Per-turn agent reply + judge scores / rationales / violations |
-| `results/batch_eval_<ts>_summary.csv` | Per model × criterion: `n`, `mean`, `variance` (sample) |
+| `results/batch_eval_<ts>_summary.csv` | Per model × criterion: `n`, `mean`, `variance` (sample; last-good row wins on resume dupes) |
 
 Default persona (marriage counselor) is baked into `run_batch_eval.py`; override
 with `--persona "..."`.
