@@ -32,6 +32,12 @@ PROFILES: dict[str, ModelProfile] = {
         model="meta/llama-3.1-70b-instruct",
         label="llama-3 (nvidia / meta/llama-3.1-70b-instruct)",
     ),
+    "llama-3-8b": ModelProfile(
+        name="llama-3-8b",
+        provider="nvidia",
+        model="meta/llama-3.1-8b-instruct",
+        label="llama-3-8b (nvidia / meta/llama-3.1-8b-instruct)",
+    ),
 }
 
 _ALIASES = {
@@ -40,6 +46,10 @@ _ALIASES = {
     "llama-3": "llama-3",
     "llama3": "llama-3",
     "llama": "llama-3",
+    "llama-3-8b": "llama-3-8b",
+    "llama3-8b": "llama-3-8b",
+    "llama-8b": "llama-3-8b",
+    "8b": "llama-3-8b",
 }
 
 DEFAULT_PROFILE = "gemini"

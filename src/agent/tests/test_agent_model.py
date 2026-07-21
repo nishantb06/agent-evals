@@ -34,6 +34,14 @@ def test_resolve_llama_aliases() -> None:
         assert p.model == "meta/llama-3.1-70b-instruct"
 
 
+def test_resolve_llama_8b_aliases() -> None:
+    for alias in ("llama-3-8b", "llama3-8b", "llama-8b", "8b", "Llama-3-8B"):
+        p = resolve(alias)
+        assert p.name == "llama-3-8b"
+        assert p.provider == "nvidia"
+        assert p.model == "meta/llama-3.1-8b-instruct"
+
+
 def test_resolve_unknown() -> None:
     with pytest.raises(UnknownModelProfile):
         resolve("gpt-4")
@@ -54,10 +62,25 @@ def test_get_chat_kwargs_llama() -> None:
     }
 
 
+def test_get_chat_kwargs_llama_8b() -> None:
+    set_profile("llama-3-8b")
+    kw = get_chat_kwargs()
+    assert kw == {
+        "provider": "nvidia",
+        "model": "meta/llama-3.1-8b-instruct",
+    }
+
+
 def test_cli_model_alone_is_repl() -> None:
     p = _parse_cli(["--model", "llama-3"])
     assert p.mode == "repl"
     assert p.model_profile == "llama-3"
+
+
+def test_cli_model_llama_8b() -> None:
+    p = _parse_cli(["--model", "llama-3-8b"])
+    assert p.mode == "repl"
+    assert p.model_profile == "llama-3-8b"
 
 
 def test_cli_model_with_chat_and_persona() -> None:
@@ -130,3 +153,44 @@ def test_run_skill_passes_llama_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(result, AgentResult)
     assert captured.get("provider") == "nvidia"
     assert captured.get("model") == "meta/llama-3.1-70b-instruct"
+
+
+def test_run_skill_passes_llama_8b_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When profile is llama-3-8b, LLM().chat must get nvidia + 8B model."""
+    set_profile("llama-3-8b")
+
+    captured: dict = {}
+
+    class FakeLLM:
+        def chat(self, **kwargs):
+            captured.update(kwargs)
+            return {"text": '{"final_answer": "ok"}', "provider": "nvidia", "cost": 0}
+
+    monkeypatch.setattr("skills.LLM", FakeLLM)
+    monkeypatch.setattr("skills.render_prompt", lambda *a, **k: "PROMPT")
+    monkeypatch.setattr("skills.resolve_inputs", lambda *a, **k: {})
+    monkeypatch.setattr(
+        "skills.parse_skill_json",
+        lambda t: {"final_answer": "ok"},
+    )
+
+    from schemas import AgentResult
+    from skills import Skill, run_skill
+    import asyncio
+
+    skill = Skill("formatter", {
+        "prompt": "prompts/formatter.md",
+        "tools_allowed": [],
+        "temperature": 0.3,
+        "max_tokens": 200,
+    })
+
+    result, _prompt = asyncio.run(
+        run_skill(
+            skill, "n:1", {"n:1": {"inputs": [], "skill": "formatter"}},
+            "run-test", "hi", None,
+        )
+    )
+    assert isinstance(result, AgentResult)
+    assert captured.get("provider") == "nvidia"
+    assert captured.get("model") == "meta/llama-3.1-8b-instruct"

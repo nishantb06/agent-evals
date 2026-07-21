@@ -197,3 +197,11 @@ def test_chat_endpoint_passes_model_profile(monkeypatch: pytest.MonkeyPatch) -> 
     assert res.status_code == 200
     assert seen["model_profile"] == "llama-3"
     assert res.json()["answer"] == "ok"
+
+    seen.clear()
+    res8 = client.post("/api/chat", json={
+        "message": "hello 8b",
+        "model_profile": "llama-3-8b",
+    })
+    assert res8.status_code == 200
+    assert seen["model_profile"] == "llama-3-8b"

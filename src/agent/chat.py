@@ -53,8 +53,8 @@ async def handle_turn(
     (excluding the message being appended) is passed into Executor as
     chat context for Planner/Formatter prompts and memory keyword fallback.
 
-    `model_profile` is `gemini` (default) or `llama-3` — forces every skill
-    LLM call onto that provider/model for the turn.
+    `model_profile` is `gemini` (default), `llama-3` (70B), or `llama-3-8b`
+    — forces every skill LLM call onto that provider/model for the turn.
     """
     text = (message or "").strip()
     if not text:

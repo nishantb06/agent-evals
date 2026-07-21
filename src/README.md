@@ -26,7 +26,7 @@ src/
 │   ├── replay.py      ← stdin-driven trace viewer
 │   ├── schemas.py     ← AgentResult, NodeSpec, NodeState, MemoryItem, …
 │   ├── agent_config.yaml  ← skills catalogue
-│   ├── agent_model.py     ← gemini | llama-3 profile switch
+│   ├── agent_model.py     ← gemini | llama-3 | llama-3-8b profile switch
 │   ├── prompts/       ← one .md per skill
 │   ├── tests/
 │   ├── mcp_server.py  ← MCP tools: web_search, fetch_url, search_knowledge, …
@@ -74,17 +74,18 @@ cd agent
 uv run python flow.py "hello"          # one-shot (gemini by default)
 # or multi-turn REPL:
 uv run python flow.py                  # new chat
-uv run python flow.py --model gemini   # frontier — all skills on Gemini
-uv run python flow.py --model llama-3  # OSS — all skills on NVIDIA Llama 3.1 8B
+uv run python flow.py --model gemini     # frontier — all skills on Gemini
+uv run python flow.py --model llama-3    # OSS — NVIDIA Llama 3.1 70B
+uv run python flow.py --model llama-3-8b # OSS — NVIDIA Llama 3.1 8B
 uv run python flow.py --chat cli-….    # reopen a chat by id
 uv run python flow.py --persona "You are a nutrition coach..."
 uv run python flow.py --chat cli-…. --persona "You are a nutrition coach..."
 ```
 
 `--model gemini` (default) forces every skill onto Gemini. `--model llama-3`
-forces every skill onto NVIDIA `meta/llama-3.1-70b-instruct` (needs
-`NVIDIA_API_KEY`). This overrides `gateway/agent_routing.yaml` pins for
-that run.
+forces every skill onto NVIDIA `meta/llama-3.1-70b-instruct`; `--model llama-3-8b`
+uses `meta/llama-3.1-8b-instruct` (needs `NVIDIA_API_KEY`). This overrides
+`gateway/agent_routing.yaml` pins for that run.
 
 A successful first one-shot run prints two node lines (planner, formatter)
 and a greeting. Graph runs land in `agent/state/sessions/<sid>/`. Walk one

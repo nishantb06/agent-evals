@@ -392,7 +392,7 @@ def _parse_cli(argv: list[str]) -> CliArgs:
             continue
         if tok == "--model":
             if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
-                raise CliParseError("--model requires a profile name (gemini | llama-3)")
+                raise CliParseError("--model requires a profile name (gemini | llama-3 | llama-3-8b)")
             try:
                 model_profile = resolve(argv[i + 1]).name
             except UnknownModelProfile as e:
@@ -459,7 +459,7 @@ def _run_repl(
     print("Multi-turn REPL. Commands: /help  /chat  /quit")
     print("Each message runs a fresh graph session under this chat.")
     print("Persona is set at launch via --persona (persists in meta.json).")
-    print("Model profile via --model gemini | llama-3.\n")
+    print("Model profile via --model gemini | llama-3 | llama-3-8b.\n")
 
     while True:
         try:
@@ -476,7 +476,7 @@ def _run_repl(
             print("  /quit   leave the REPL")
             print("  otherwise: send a user message (one graph run)")
             print("  launch with --persona \"...\" to set chat persona")
-            print("  launch with --model gemini|llama-3 to force provider")
+            print("  launch with --model gemini|llama-3|llama-3-8b to force provider")
             continue
         if line == "/chat":
             print(f"  chat_id = {cid}")
