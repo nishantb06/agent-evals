@@ -72,6 +72,8 @@ uv run python flow.py "hello"          # one-shot
 # or multi-turn REPL:
 uv run python flow.py                  # new chat
 uv run python flow.py --chat cli-….    # reopen a chat by id
+uv run python flow.py --persona "You are a nutrition coach..."
+uv run python flow.py --chat cli-…. --persona "You are a nutrition coach..."
 ```
 
 A successful first one-shot run prints two node lines (planner, formatter)
@@ -87,6 +89,8 @@ uv run python replay.py <sid>
 Chat is a thin layer over graph sessions: one user message → one fresh
 `run-*` session → one Formatter answer. Transcripts live in
 `agent/state/chats/<chat_id>/` (`meta.json` + `conversation.json`).
+Optional `--persona` is stored on the chat in `meta.json` and injected
+into Planner and Formatter prompts on every turn.
 
 ```bash
 cd agent
@@ -98,6 +102,14 @@ uv run python flow.py
 # agent> …
 # you> /quit
 ```
+
+```bash
+uv run python flow.py --persona "You are a practical nutrition coach..."
+uv run python flow.py --chat cli-xyz --persona "You are a practical nutrition coach..."
+```
+
+Omitting `--persona` when reopening a chat keeps the persona already
+saved in that chat's `meta.json`.
 
 REPL commands: `/help`, `/chat` (print chat id), `/quit`.
 

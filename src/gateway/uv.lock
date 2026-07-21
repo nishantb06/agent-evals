@@ -214,7 +214,7 @@ wheels = [
 ]
 
 [[package]]
-name = "llm-gateway-v8"
+name = "ollive-gateway"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

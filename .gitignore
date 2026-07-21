@@ -13,3 +13,6 @@ src/agent/state/*
 __pycache__/
 .DS_Store
 *.db 
+.cursor
+src/evals/results/*.json
+!src/evals/results/.gitkeep

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ollive Evals</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Ollive Evals</h1>
+    <span class="muted" id="healthStatus">checking gateway…</span>
+    <nav class="tabs">
+      <button type="button" class="tab active" data-tab="live">Live Chat</button>
+      <button type="button" class="tab" data-tab="upload">Upload Eval</button>
+    </nav>
+    <div class="averages" id="liveAverages" title="Session score averages">
+      <span class="avg-chip" data-k="hallucination">H —</span>
+      <span class="avg-chip" data-k="bias_harm">B —</span>
+      <span class="avg-chip" data-k="jailbreak">J —</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Live Chat -->
+    <section id="tab-live" class="tab-panel active">
+      <div class="chat-layout">
+        <div class="chat-sidebar">
+          <label class="field">
+            <span class="field-label">persona (optional)</span>
+            <textarea id="personaInput" rows="3" placeholder="You are a practical nutrition coach…"></textarea>
+          </label>
+          <div class="meta-line">chat: <code id="chatIdLabel">—</code></div>
+          <button type="button" id="newChatBtn">New chat</button>
+        </div>
+        <div class="chat-main">
+          <div id="chatLog" class="chat-log" aria-live="polite"></div>
+          <form id="chatForm" class="chat-compose">
+            <input id="messageInput" type="text" autocomplete="off"
+                   placeholder="Message the agent…" required />
+            <button type="submit" id="sendBtn">Send</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Upload Eval -->
+    <section id="tab-upload" class="tab-panel">
+      <div class="upload-bar">
+        <label class="file-label">
+          <span class="field-label">conversation.json</span>
+          <input type="file" id="fileInput" accept="application/json,.json" />
+        </label>
+        <button type="button" id="runEvalBtn" disabled>Run eval</button>
+        <button type="button" id="downloadBtn" disabled>Download results</button>
+        <span class="muted" id="uploadStatus"></span>
+      </div>
+      <div class="upload-layout">
+        <div id="uploadTranscript" class="chat-log upload-transcript"></div>
+        <div class="results-pane">
+          <h2>Per-turn scores</h2>
+          <div id="uploadAverages" class="averages block"></div>
+          <div id="scoreTable" class="score-table"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

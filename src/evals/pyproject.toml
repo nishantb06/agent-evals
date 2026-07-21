@@ -1,0 +1,31 @@
+[project]
+name = "ollive-evals"
+version = "0.1.0"
+description = "Ollive agent evals platform — LLM-as-judge via the gateway."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "pydantic>=2.13.4",
+    # Agent runtime (live chat imports handle_turn → flow → networkx, etc.)
+    "mcp[cli]",
+    "ddgs",
+    "tavily-python",
+    "crawl4ai",
+    "faiss-cpu>=1.8.0",
+    "numpy>=1.26",
+    "networkx>=3.2",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

@@ -19,6 +19,7 @@ import json
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 
 import networkx as nx
 
@@ -342,14 +343,81 @@ class Executor:
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
-def _run_repl(chat_id: str | None) -> None:
+@dataclass
+class CliArgs:
+    """Parsed argv for flow.py. mode is one of: repl | resume | oneshot."""
+
+    mode: str
+    chat_id: str | None = None
+    persona: str | None = None
+    resume_sid: str | None = None
+    query: str = ""
+
+
+class CliParseError(ValueError):
+    """Raised when argv is malformed (missing flag value, unknown flag)."""
+
+
+def _parse_cli(argv: list[str]) -> CliArgs:
+    """Parse flow.py argv into CliArgs. Order of --chat / --persona is free.
+
+    Raises CliParseError on missing values or unknown flags when flags are
+    mixed with a one-shot query.
+    """
+    chat_id: str | None = None
+    persona: str | None = None
+    positional: list[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--chat":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                raise CliParseError("--chat requires a chat id")
+            chat_id = argv[i + 1]
+            i += 2
+            continue
+        if tok == "--persona":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                raise CliParseError("--persona requires a persona string")
+            persona = argv[i + 1]
+            i += 2
+            continue
+        if tok == "--resume":
+            if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
+                raise CliParseError("--resume requires a session id")
+            resume_sid = argv[i + 1]
+            query = " ".join(argv[i + 2 :])
+            return CliArgs(mode="resume", resume_sid=resume_sid, query=query)
+        if tok.startswith("--"):
+            raise CliParseError(f"unknown flag: {tok}")
+        positional.append(tok)
+        i += 1
+
+    if chat_id is not None or persona is not None or not positional:
+        if positional:
+            raise CliParseError(
+                "positional query cannot be combined with --chat / --persona; "
+                "use the REPL or a bare one-shot query"
+            )
+        return CliArgs(mode="repl", chat_id=chat_id, persona=persona)
+
+    return CliArgs(mode="oneshot", query=" ".join(positional))
+
+
+def _run_repl(chat_id: str | None, persona: str | None = None) -> None:
     """Interactive multi-turn chat. Each line → one graph session via handle_turn."""
     from chat import handle_turn, new_chat_id
 
     cid = chat_id or new_chat_id("cli")
     print(f"chat {cid}")
+    if persona and persona.strip():
+        preview = persona.strip().replace("\n", " ")
+        if len(preview) > 80:
+            preview = preview[:80] + "…"
+        print(f"persona: {preview}")
     print("Multi-turn REPL. Commands: /help  /chat  /quit")
-    print("Each message runs a fresh graph session under this chat.\n")
+    print("Each message runs a fresh graph session under this chat.")
+    print("Persona is set at launch via --persona (persists in meta.json).\n")
 
     while True:
         try:
@@ -365,12 +433,15 @@ def _run_repl(chat_id: str | None) -> None:
             print("  /chat   print current chat id")
             print("  /quit   leave the REPL")
             print("  otherwise: send a user message (one graph run)")
+            print("  launch with --persona \"...\" to set chat persona")
             continue
         if line == "/chat":
             print(f"  chat_id = {cid}")
             continue
         try:
-            result = asyncio.run(handle_turn(cid, line, channel="cli"))
+            result = asyncio.run(
+                handle_turn(cid, line, channel="cli", persona=persona)
+            )
         except Exception as e:
             print(f"error: {type(e).__name__}: {e}")
             continue
@@ -380,24 +451,26 @@ def _run_repl(chat_id: str | None) -> None:
 
 
 def main() -> None:
-    args = sys.argv[1:]
-    # Multi-turn REPL: bare `flow.py` or `flow.py --chat [id]`
-    if not args:
-        _run_repl(None)
+    try:
+        parsed = _parse_cli(sys.argv[1:])
+    except CliParseError as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    if parsed.mode == "repl":
+        _run_repl(parsed.chat_id, persona=parsed.persona)
         return
-    if args[0] == "--chat":
-        chat_id = args[1] if len(args) > 1 else None
-        _run_repl(chat_id)
+    if parsed.mode == "resume":
+        asyncio.run(
+            Executor().run(
+                parsed.query,
+                session_id=parsed.resume_sid,
+                resume=True,
+            )
+        )
         return
-    # Graph crash-resume (orthogonal to chat)
-    if args[0] == "--resume":
-        resume_sid = args[1] if len(args) > 1 else None
-        query = " ".join(args[2:])
-        asyncio.run(Executor().run(query, session_id=resume_sid, resume=True))
-        return
-    # One-shot (unchanged): flow.py "your question"
-    query = " ".join(args)
-    asyncio.run(Executor().run(query))
+    # One-shot: flow.py "your question"
+    asyncio.run(Executor().run(parsed.query))
 
 
 if __name__ == "__main__":
