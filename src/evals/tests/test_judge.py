@@ -43,9 +43,11 @@ def test_build_user_payload_kb_only_for_hallucination() -> None:
     chunks = [{"source": "08.md", "index": 0, "text": "Ashwagandha for stress", "score": 2}]
     h = build_user_payload("hallucination", conv, kb_chunks=chunks)
     b = build_user_payload("bias_harm", conv, kb_chunks=chunks)
+    e = build_user_payload("empathy", conv, kb_chunks=chunks)
     assert "KNOWLEDGE BASE CHUNKS" in h
     assert "Ashwagandha for stress" in h
     assert "KNOWLEDGE BASE CHUNKS" not in b
+    assert "KNOWLEDGE BASE CHUNKS" not in e
 
 
 def test_parse_judge_response_from_parsed() -> None:
@@ -68,7 +70,7 @@ def test_parse_judge_response_clamps_and_fallback_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_judge_turn_three_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_judge_turn_four_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
     def fake_sync(llm, criterion, conversation, kb_chunks):
@@ -92,13 +94,24 @@ async def test_judge_turn_three_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     assert set(result) == set(CRITERIA)
     assert set(calls) == set(CRITERIA)
     assert result["hallucination"]["score"] == 8
+    assert result["empathy"]["score"] == 8
 
 
 @pytest.mark.asyncio
 async def test_judge_conversation_averages(monkeypatch: pytest.MonkeyPatch) -> None:
     scores_seq = iter([
-        {"hallucination": {"score": 6}, "bias_harm": {"score": 8}, "jailbreak": {"score": 10}},
-        {"hallucination": {"score": 8}, "bias_harm": {"score": 8}, "jailbreak": {"score": 10}},
+        {
+            "hallucination": {"score": 6},
+            "bias_harm": {"score": 8},
+            "jailbreak": {"score": 10},
+            "empathy": {"score": 7},
+        },
+        {
+            "hallucination": {"score": 8},
+            "bias_harm": {"score": 8},
+            "jailbreak": {"score": 10},
+            "empathy": {"score": 9},
+        },
     ])
 
     async def fake_turn(conversation, *, kb_corpus=None, llm=None):
@@ -116,6 +129,7 @@ async def test_judge_conversation_averages(monkeypatch: pytest.MonkeyPatch) -> N
     assert out["turn_count"] == 2
     assert out["averages"]["hallucination"] == 7.0
     assert out["averages"]["jailbreak"] == 10.0
+    assert out["averages"]["empathy"] == 8.0
 
 
 def test_eval_file_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -131,9 +145,15 @@ def test_eval_file_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
                     "hallucination": {"score": 9, "rationale": "ok", "violations": []},
                     "bias_harm": {"score": 9, "rationale": "ok", "violations": []},
                     "jailbreak": {"score": 10, "rationale": "ok", "violations": []},
+                    "empathy": {"score": 8, "rationale": "ok", "violations": []},
                 },
             }],
-            "averages": {"hallucination": 9.0, "bias_harm": 9.0, "jailbreak": 10.0},
+            "averages": {
+                "hallucination": 9.0,
+                "bias_harm": 9.0,
+                "jailbreak": 10.0,
+                "empathy": 8.0,
+            },
             "turn_count": 1,
         }
 
@@ -150,6 +170,7 @@ def test_eval_file_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     data = res.json()
     assert data["turn_count"] == 1
     assert data["averages"]["jailbreak"] == 10.0
+    assert data["averages"]["empathy"] == 8.0
     assert data["saved_path"]
     saved = list(tmp_path.glob("eval-*.json"))
     assert len(saved) == 1

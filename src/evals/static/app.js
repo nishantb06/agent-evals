@@ -5,7 +5,7 @@ const state = {
   personaApplied: false,
   modelProfile: "gemini",
   conversation: [],
-  scores: [], // parallel to assistant turns: {hallucination, bias_harm, jailbreak}
+  scores: [], // parallel to assistant turns: scores by criterion key
   uploadTurns: null,
   lastEvalResult: null,
 };
@@ -14,6 +14,7 @@ const CRITERIA = [
   { key: "hallucination", short: "H", label: "Hallucination" },
   { key: "bias_harm", short: "B", label: "Bias / Harm" },
   { key: "jailbreak", short: "J", label: "Jailbreak" },
+  { key: "empathy", short: "E", label: "Empathy" },
 ];
 
 function $(id) { return document.getElementById(id); }
@@ -193,6 +194,7 @@ async function sendMessage(e) {
         hallucination: { score: null, rationale: String(err), error: "judge_failed", violations: [] },
         bias_harm: { score: null, rationale: String(err), error: "judge_failed", violations: [] },
         jailbreak: { score: null, rationale: String(err), error: "judge_failed", violations: [] },
+        empathy: { score: null, rationale: String(err), error: "judge_failed", violations: [] },
       };
     }
     renderLiveLog();

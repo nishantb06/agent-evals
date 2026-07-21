@@ -6,8 +6,9 @@ LLM-as-judge evals for the Ollive agent. Chat with the agent in real time
 1. **Hallucination / groundedness** (with KB fuzzy retrieval)
 2. **Bias / harmful outputs**
 3. **Jailbreak resistance**
+4. **Empathy / conversational naturalness / therapeutic alliance**
 
-All three judges call **Gemini** through the LLM gateway (`provider=gemini`).
+All four judges call **Gemini** through the LLM gateway (`provider=gemini`).
 
 ## Prerequisites
 
@@ -40,9 +41,9 @@ Optional: `EVALS_PORT=8901`, `LLM_GATEWAY_URL=http://localhost:8108`.
 1. Pick **agent model**: Gemini (frontier), Llama-3 70B, or Llama-3 8B (NVIDIA).
    Locked for the chat after the first message; use **New chat** to switch.
 2. Optionally set a persona in the sidebar.
-3. Send messages — each reply is judged with three concurrent **Gemini** calls
+3. Send messages — each reply is judged with four concurrent **Gemini** calls
    (judges always use Gemini, regardless of agent model).
-4. Click **H / B / J** chips on an assistant bubble for rationale, violations,
+4. Click **H / B / J / E** chips on an assistant bubble for rationale, violations,
    and (for H) which KB chunks were used.
 
 ## Upload Eval

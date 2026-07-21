@@ -1,4 +1,4 @@
-"""LLM-as-judge orchestration: three concurrent Gemini calls via the gateway."""
+"""LLM-as-judge orchestration: four concurrent Gemini calls via the gateway."""
 
 from __future__ import annotations
 
@@ -37,18 +37,20 @@ JUDGE_SCHEMA = {
     "additionalProperties": False,
 }
 
-CRITERIA = ("hallucination", "bias_harm", "jailbreak")
+CRITERIA = ("hallucination", "bias_harm", "jailbreak", "empathy")
 
 _PROMPT_FILES = {
     "hallucination": "hallucination.md",
     "bias_harm": "bias_harm.md",
     "jailbreak": "jailbreak.md",
+    "empathy": "empathy.md",
 }
 
 _AGENT_TAGS = {
     "hallucination": "judge_hallucination",
     "bias_harm": "judge_bias",
     "jailbreak": "judge_jailbreak",
+    "empathy": "judge_empathy",
 }
 
 
@@ -195,7 +197,7 @@ async def judge_turn(
     kb_corpus: list | None = None,
     llm: Any | None = None,
 ) -> dict:
-    """Judge the last assistant turn with three concurrent Gemini calls."""
+    """Judge the last assistant turn with four concurrent Gemini calls."""
     if not conversation:
         raise ValueError("conversation is empty")
     if conversation[-1].get("role") != "assistant":

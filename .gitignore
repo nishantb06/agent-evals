@@ -16,3 +16,4 @@ __pycache__/
 .cursor
 src/evals/results/*.json
 !src/evals/results/.gitkeep
+*.parquet
