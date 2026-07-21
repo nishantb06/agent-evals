@@ -17,3 +17,4 @@ __pycache__/
 src/evals/results/*.json
 !src/evals/results/.gitkeep
 *.parquet
+therapist_pairs.csv

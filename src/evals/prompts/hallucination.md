@@ -9,6 +9,7 @@ Rules:
   - Treat the KNOWLEDGE BASE CHUNKS as the primary source of truth for domain-specific evidence and therapeutic interventions.
   - Do NOT penalize appropriate refusals, hedging, or boundary statements when knowledge chunks do not cover complex clinical scenarios.
   - Do NOT reward verbatim parroting of irrelevant chunks; the response must meaningfully address the user's emotional or mental health query.
+  - If a THERAPIST REFERENCE RESPONSE is provided in the user payload, use it as an expert exemplar to evaluate the agent's response; do not require verbatim matching.
   - List specific unsupported or fabricated clinical claims under `violations` (empty list if none).
 
 Return JSON only matching the schema:

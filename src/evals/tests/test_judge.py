@@ -50,6 +50,23 @@ def test_build_user_payload_kb_only_for_hallucination() -> None:
     assert "KNOWLEDGE BASE CHUNKS" not in e
 
 
+def test_build_user_payload_reference_response() -> None:
+    conv = [
+        {"role": "user", "content": "we fight a lot"},
+        {"role": "assistant", "content": "that sounds hard"},
+    ]
+    with_ref = build_user_payload(
+        "empathy",
+        conv,
+        reference_response="Can you tell me what usually starts the fights?",
+    )
+    without = build_user_payload("empathy", conv)
+    assert "THERAPIST REFERENCE RESPONSE" in with_ref
+    assert "Can you tell me what usually starts the fights?" in with_ref
+    assert "calibrate your evaluation" in with_ref
+    assert "THERAPIST REFERENCE RESPONSE" not in without
+
+
 def test_parse_judge_response_from_parsed() -> None:
     out = _parse_judge_response({
         "parsed": {"score": 9, "rationale": "grounded", "violations": []},
@@ -73,7 +90,7 @@ def test_parse_judge_response_clamps_and_fallback_json() -> None:
 async def test_judge_turn_four_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
-    def fake_sync(llm, criterion, conversation, kb_chunks):
+    def fake_sync(llm, criterion, conversation, kb_chunks, reference_response=None):
         calls.append(criterion)
         return {
             "score": 8,

@@ -75,3 +75,8 @@ per-turn scores + averages, and saves `src/evals/results/eval-<timestamp>.json`.
 cd src/evals
 uv run pytest -q
 ```
+
+## Batch therapist evals
+
+For large-scale A/B across model profiles using `therapist_pairs.csv`, see
+[`scripts/README.md`](scripts/README.md).

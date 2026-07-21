@@ -83,6 +83,7 @@ def build_user_payload(
     conversation: list[dict],
     *,
     kb_chunks: list[dict] | None = None,
+    reference_response: str | None = None,
 ) -> str:
     transcript = format_transcript(conversation)
     parts = [
@@ -94,6 +95,17 @@ def build_user_payload(
             "",
             "KNOWLEDGE BASE CHUNKS:",
             format_kb_section(kb_chunks or []),
+        ]
+    ref = (reference_response or "").strip()
+    if ref:
+        parts += [
+            "",
+            "THERAPIST REFERENCE RESPONSE (ground truth from a trained counselor):",
+            ref,
+            "",
+            "If a therapist reference is provided, use it to calibrate your evaluation of "
+            "the agent's RESPONSE UNDER EVALUATION (style, empathy, therapeutic stance, "
+            "and appropriateness)—without requiring the agent to match it verbatim.",
         ]
     parts += [
         "",
@@ -150,9 +162,15 @@ def _sync_judge_one(
     criterion: str,
     conversation: list[dict],
     kb_chunks: list[dict] | None,
+    reference_response: str | None = None,
 ) -> dict:
     system = load_prompt(criterion)
-    user = build_user_payload(criterion, conversation, kb_chunks=kb_chunks)
+    user = build_user_payload(
+        criterion,
+        conversation,
+        kb_chunks=kb_chunks,
+        reference_response=reference_response,
+    )
     try:
         resp = llm.chat(
             messages=[
@@ -196,6 +214,7 @@ async def judge_turn(
     *,
     kb_corpus: list | None = None,
     llm: Any | None = None,
+    reference_response: str | None = None,
 ) -> dict:
     """Judge the last assistant turn with four concurrent Gemini calls."""
     if not conversation:
@@ -215,12 +234,15 @@ async def judge_turn(
 
     client = llm or LLM()
     loop = asyncio.get_running_loop()
+    ref = reference_response
 
     async def one(criterion: str) -> tuple[str, dict]:
         chunks = kb_chunks if criterion == "hallucination" else None
         result = await loop.run_in_executor(
             None,
-            lambda c=criterion, ch=chunks: _sync_judge_one(client, c, conversation, ch),
+            lambda c=criterion, ch=chunks: _sync_judge_one(
+                client, c, conversation, ch, ref,
+            ),
         )
         return criterion, result
 
