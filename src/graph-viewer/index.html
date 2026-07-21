@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Graph Viewer</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Session graph</h1>
+    <label class="field">
+      <span class="field-label">chat</span>
+      <select id="chatSelect" aria-label="Chat">
+        <option value="">Loading chats…</option>
+      </select>
+    </label>
+    <label class="field">
+      <span class="field-label">session</span>
+      <select id="sessionSelect" aria-label="Session">
+        <option value="">Select a chat first</option>
+      </select>
+    </label>
+    <button type="button" id="refreshBtn">Refresh</button>
+    <span class="muted" id="status">—</span>
+  </header>
+
+  <div id="queryBanner">
+    <div><span class="label">chat</span><span id="chatMetaText">—</span></div>
+    <div><span class="label">query</span><span id="queryText">Select a session</span></div>
+  </div>
+
+  <main>
+    <div id="network"></div>
+    <aside>
+      <section id="memoryPanel" class="memory-panel">
+        <h2>Memory / FAISS hits</h2>
+        <p class="hint">Load a session to see memory hits for that run.</p>
+      </section>
+      <section id="panel">
+        <p class="hint">Pick a chat, then a session. Hover a node for a summary; click for full details.</p>
+      </section>
+    </aside>
+  </main>
+
+  <div id="tooltip"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

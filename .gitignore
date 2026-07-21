@@ -5,3 +5,11 @@ ollive-wiki/.obsidian
 *.pyc 
 *.pyo
 __pycache__/
+ollive-wiki/
+.env
+.env.local 
+src/agent/state
+src/agent/state/*
+__pycache__/
+.DS_Store
+*.db 

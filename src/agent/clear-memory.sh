@@ -1,0 +1,1 @@
+uv run python -c "import memory; memory.clear()" 
