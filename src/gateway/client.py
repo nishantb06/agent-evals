@@ -21,6 +21,22 @@ from typing import Any, Optional
 DEFAULT_URL = os.getenv("LLM_GATEWAY_URL") or os.getenv("LLM_GATEWAY_V8_URL", "http://localhost:8108")
 
 
+def _raise_for_status(r: httpx.Response) -> None:
+    """Like raise_for_status, but include the response body so gateway 502
+    detail (e.g. nvidia DNS / upstream errors) reaches agent logs."""
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        detail = (r.text or "").strip()
+        if detail:
+            raise httpx.HTTPStatusError(
+                f"{e} | body={detail[:500]}",
+                request=e.request,
+                response=e.response,
+            ) from None
+        raise
+
+
 class LLM:
     def __init__(self, base_url: str = DEFAULT_URL, timeout: float = 600):
         self.base_url = base_url.rstrip("/")
@@ -51,7 +67,7 @@ class LLM:
         }
         body = {k: v for k, v in body.items() if v is not None}
         r = httpx.post(f"{self.base_url}/v1/chat", json=body, timeout=self.timeout)
-        r.raise_for_status()
+        _raise_for_status(r)
         return r.json()
 
     def chat_batch(self, calls: list[dict], max_concurrency: int = 4) -> list[dict]:
@@ -61,7 +77,7 @@ class LLM:
         `{"error": ..., "status_code": ...}` rather than raising."""
         body = {"calls": calls, "max_concurrency": max_concurrency}
         r = httpx.post(f"{self.base_url}/v1/chat/batch", json=body, timeout=self.timeout)
-        r.raise_for_status()
+        _raise_for_status(r)
         return r.json().get("results", [])
 
     def capabilities(self):
@@ -70,7 +86,7 @@ class LLM:
     def cost_by_agent(self, session: Optional[str] = None) -> dict:
         params = {"session": session} if session else {}
         r = httpx.get(f"{self.base_url}/v1/cost/by_agent", params=params, timeout=30)
-        r.raise_for_status()
+        _raise_for_status(r)
         return r.json()
 
     def embed(self, text: str,
@@ -81,7 +97,7 @@ class LLM:
         if provider:
             body["provider"] = provider
         r = httpx.post(f"{self.base_url}/v1/embed", json=body, timeout=self.timeout)
-        r.raise_for_status()
+        _raise_for_status(r)
         return r.json()
 
 

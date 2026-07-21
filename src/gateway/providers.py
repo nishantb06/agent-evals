@@ -20,7 +20,7 @@ The returned dict is normalised:
 each adapter translates them to its native shape.
 """
 from __future__ import annotations
-import os, json, uuid, hashlib, re
+import asyncio, os, json, uuid, hashlib, re
 from typing import AsyncIterator, Optional, Any
 import httpx
 
@@ -214,17 +214,35 @@ class OpenAICompatProvider(BaseProvider):
         reasoning_applied = self._apply_reasoning(body, reasoning, m)
 
         async with httpx.AsyncClient(timeout=180) as c:
-            r = await c.post(f"{self.base_url}/chat/completions", headers=self._headers(), json=body)
+            url = f"{self.base_url}/chat/completions"
+            headers = self._headers()
+
+            async def _post():
+                try:
+                    return await c.post(url, headers=headers, json=body)
+                except (httpx.ConnectError, httpx.ConnectTimeout):
+                    # Transient DNS / connect blips (e.g. Errno 8) — one retry.
+                    await asyncio.sleep(0.75)
+                    try:
+                        return await c.post(url, headers=headers, json=body)
+                    except (httpx.ConnectError, httpx.ConnectTimeout) as e2:
+                        raise ProviderError(
+                            f"{self.name} connect failed: {e2}",
+                            status=None,
+                            retryable=True,
+                        ) from e2
+
+            r = await _post()
             if r.status_code != 200:
                 # Some providers reject reasoning_effort or strict json_schema — retry without them.
                 txt = r.text
                 if reasoning_applied and "reasoning_effort" in txt:
                     body.pop("reasoning_effort", None)
                     reasoning_applied = False
-                    r = await c.post(f"{self.base_url}/chat/completions", headers=self._headers(), json=body)
+                    r = await _post()
                 if r.status_code != 200 and "json_schema" in (body.get("response_format") or {}).get("type", ""):
                     body["response_format"] = {"type": "json_object"}
-                    r = await c.post(f"{self.base_url}/chat/completions", headers=self._headers(), json=body)
+                    r = await _post()
                 if r.status_code != 200:
                     raise ProviderError(
                         f"{self.name} HTTP {r.status_code}: {r.text[:300]}",

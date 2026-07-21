@@ -82,7 +82,7 @@ uv run python flow.py --chat cli-…. --persona "You are a nutrition coach..."
 ```
 
 `--model gemini` (default) forces every skill onto Gemini. `--model llama-3`
-forces every skill onto NVIDIA `meta/llama-3.1-8b-instruct` (needs
+forces every skill onto NVIDIA `meta/llama-3.1-70b-instruct` (needs
 `NVIDIA_API_KEY`). This overrides `gateway/agent_routing.yaml` pins for
 that run.
 

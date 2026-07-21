@@ -31,7 +31,7 @@ def test_resolve_llama_aliases() -> None:
         p = resolve(alias)
         assert p.name == "llama-3"
         assert p.provider == "nvidia"
-        assert p.model == "meta/llama-3.1-8b-instruct"
+        assert p.model == "meta/llama-3.1-70b-instruct"
 
 
 def test_resolve_unknown() -> None:
@@ -50,7 +50,7 @@ def test_get_chat_kwargs_llama() -> None:
     kw = get_chat_kwargs()
     assert kw == {
         "provider": "nvidia",
-        "model": "meta/llama-3.1-8b-instruct",
+        "model": "meta/llama-3.1-70b-instruct",
     }
 
 
@@ -129,4 +129,4 @@ def test_run_skill_passes_llama_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert isinstance(result, AgentResult)
     assert captured.get("provider") == "nvidia"
-    assert captured.get("model") == "meta/llama-3.1-8b-instruct"
+    assert captured.get("model") == "meta/llama-3.1-70b-instruct"

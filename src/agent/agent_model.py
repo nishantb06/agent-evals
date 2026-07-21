@@ -29,8 +29,8 @@ PROFILES: dict[str, ModelProfile] = {
     "llama-3": ModelProfile(
         name="llama-3",
         provider="nvidia",
-        model="meta/llama-3.1-8b-instruct",
-        label="llama-3 (nvidia / meta/llama-3.1-8b-instruct)",
+        model="meta/llama-3.1-70b-instruct",
+        label="llama-3 (nvidia / meta/llama-3.1-70b-instruct)",
     ),
 }
 
