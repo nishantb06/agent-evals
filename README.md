@@ -8,6 +8,9 @@ loop: each node is a typed skill (Planner, Researcher, Distiller, Critic,
 Formatter, Coder, …), edges carry the predecessor's `AgentResult`, and the
 runtime executes ready nodes in parallel via `asyncio.gather`.
 
+Built for mental-health / wellness assistance, with a multi-provider LLM
+gateway and an LLM-as-judge evals UI for comparing model profiles.
+
 ---
 
 ## Layout
@@ -16,8 +19,9 @@ runtime executes ready nodes in parallel via `asyncio.gather`.
 .
 ├── README.md          ← you are here
 ├── .env.example       ← copy to .env, fill in keys you have
+├── images/            ← screenshots + report charts (`images/report/`)
 │
-├── agent/             ← the agent. Run from here.
+├── report.md          ← evaluation report (infographics + design notes)
 │   ├── flow.py        ← orchestrator (Graph + Executor + CLI)
 │   ├── chat.py        ← multi-turn handle_turn() wrapper (adapters call this)
 │   ├── chat_store.py  ← persistent chat transcripts under state/chats/
@@ -70,7 +74,7 @@ cd agent   && uv sync && cd ..
 # 3. Start the gateway (one terminal)
 cd gateway && uv run main.py
 # (or: ./run.sh)
-# It boots on http://localhost:8108; /v1/routers should answer.
+# It boots on http://localhost:8108; open / for the dashboard.
 
 # 4. Run the agent (another terminal)
 cd agent
@@ -149,6 +153,33 @@ await send_reply(result.answer)
 
 ---
 
+## LLM Gateway
+
+The gateway (`gateway/`, port **8108**) fans agent calls across providers
+with failover, per-provider quotas, a router pool, and 768-dim embeddings
+(Ollama → Gemini). Dashboard at `http://localhost:8108/`:
+
+![LLM Gateway dashboard — worker / router / embedder pools](images/llm-gateway.png)
+
+---
+
+## Evals platform
+
+Live chat + upload evals (`evals/`, port **8901**) score every assistant
+turn on hallucination, bias/harm, jailbreak, and empathy (Gemini judges).
+Pick `gemini` / `llama-3` / `llama-3-8b` for the agent; judges stay on Gemini.
+
+```bash
+cd evals && uv sync && uv run server.py
+# open http://localhost:8901
+```
+
+![Ollive Evals — live chat with H / B / J / E judge chips](images/evals-platform-snapshot.png)
+
+Batch A/B against therapist pairs: see [`evals/scripts/README.md`](evals/scripts/README.md).
+
+---
+
 ## Architecture
 
 The Planner reads the user query and emits a small DAG of skill nodes
@@ -166,6 +197,12 @@ Failure handling is in `recovery.py`. Transient gateway errors don't
 re-plan (the gateway already retries); validation errors don't re-plan
 (it's a prompt bug); upstream-failures do. `tests/test_recovery.py`
 pins the classifier against the actual gateway error strings.
+
+### Design notes (challenge deliverable)
+
+Architecture decisions, tradeoffs, and “what we’d improve with more time”
+are written up alongside the A/B eval results in **[`report.md`](report.md)**
+(includes comparison infographics under `images/report/`).
 
 ---
 
