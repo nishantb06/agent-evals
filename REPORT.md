@@ -5,7 +5,7 @@
 ---
 
 ## Method
-A conversation between a couple and their marriage counselor was taken as actual inputs to run automated evals. The LLM Judge was asked to give scores as compared to the original answer by the therapist
+A conversation between a couple and their marriage counselor was taken as actual inputs to run automated evals. The LLM Judge was asked to give scores as compared to the original answer by the therapist . HF Dataset [link](https://huggingface.co/datasets/aizenSosuke/hope_therapy_conversation_transcripts)
 - **Task:** marriage-counselor persona; multi-turn chats over therapist-pair windows (10 exchanges × 10 conversations from `therapist_pairs.csv`).
 - **Agent:** graph orchestrator (`agent/`) with KB + web tools; model profile forced via `--model` / `model_profile`.
 - **Judges:** concurrent Gemini calls through the LLM gateway; optional **therapist reference response** in the judge payload (expert exemplar, not verbatim match).
